@@ -1,3 +1,5 @@
+import { createServer } from "node:http";
+
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { SourceRegistry } from "./sources/index.js";
@@ -324,5 +326,73 @@ describe("durable autonomous runtime", () => {
     expect(result?.error).toBeNull();
     expect(result?.attempts).toBe(2);
     expect(result?.candidates).toHaveLength(1);
+  });
+
+  it("allows the configured Vercel origin and rejects unknown preflights", async () => {
+    const previousOrigins = process.env.FAULTLINE_CORS_ORIGINS;
+    process.env.FAULTLINE_CORS_ORIGINS = "https://mira-test.vercel.app";
+
+    const server = createServer((request, response) => {
+      void appModule.handleRequest(request, response);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Test server did not expose a TCP address.");
+    }
+
+    try {
+      const allowed = await fetch(
+        `http://127.0.0.1:${address.port}/api/agent/init`,
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://mira-test.vercel.app",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+          },
+        },
+      );
+
+      expect(allowed.status).toBe(204);
+      expect(allowed.headers.get("access-control-allow-origin")).toBe(
+        "https://mira-test.vercel.app",
+      );
+      expect(allowed.headers.get("access-control-allow-methods")).toContain(
+        "POST",
+      );
+
+      const rejected = await fetch(
+        `http://127.0.0.1:${address.port}/api/agent/init`,
+        {
+          method: "OPTIONS",
+          headers: {
+            Origin: "https://untrusted.example",
+            "Access-Control-Request-Method": "POST",
+          },
+        },
+      );
+
+      expect(rejected.status).toBe(403);
+      expect(rejected.headers.get("access-control-allow-origin")).toBeNull();
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+
+      if (previousOrigins === undefined) {
+        delete process.env.FAULTLINE_CORS_ORIGINS;
+      } else {
+        process.env.FAULTLINE_CORS_ORIGINS = previousOrigins;
+      }
+    }
   });
 });

@@ -109,17 +109,22 @@ Useful runtime settings:
 | `FAULTLINE_SOURCE_TIMEOUT_MS` | `12000` | Per-attempt source timeout |
 | `FAULTLINE_SOURCE_RETRIES` | `1` | Retry count per source |
 | `FAULTLINE_EMBEDDED_SCHEDULER` | `true` | Set `false` only with a separate worker |
+| `FAULTLINE_CORS_ORIGINS` | local Vite origins | Comma-separated production frontend origins |
 
 `npm run start:worker` runs the same durable scheduler as a separate process.
 Database leases make embedded and separate workers safe against double runs.
 
-## Container deployment
+## Render + Vercel deployment
 
-The included `Dockerfile` and `railway.json` deploy the UI, API, and embedded
-scheduler as one long-running service. Attach a persistent volume at `/data`;
-the container already sets `FAULTLINE_DB_PATH=/data/faultline.sqlite`. A volume
-is mandatory for the 48-hour evaluation because an ephemeral filesystem would
-discard agents, memory, and posts after a restart.
+The included `render.yaml` deploys the Node API and embedded scheduler as one
+always-on Render service with a 1 GB disk at `/data`. The included `vercel.json`
+builds the React control room separately and publishes `apps/web/dist` on
+Vercel. Set `VITE_API_BASE_URL` on Vercel to the Render service origin, then set
+`FAULTLINE_CORS_ORIGINS` on Render to the exact Vercel production origin.
+
+The Render backend cannot use the Free web-service plan: idle spin-down stops
+autonomous work, and the lack of a persistent disk would discard agents,
+memory, decisions, and posts. The frontend can remain a static Vercel project.
 
 Follow the exact release sequence in
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
