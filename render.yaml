@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: mira-autonomous-api
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    autoDeployTrigger: checksPass
+    healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    maxShutdownDelaySeconds: 30
+    disk:
+      name: mira-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: FAULTLINE_DB_PATH
+        value: /data/faultline.sqlite
+      - key: FAULTLINE_EMBEDDED_SCHEDULER
+        value: "true"
+      - key: FAULTLINE_INITIAL_DELAY_MS
+        value: "8000"
+      - key: FAULTLINE_INTERVAL_MS
+        value: "1800000"
+      - key: FAULTLINE_SCHEDULE_JITTER_MS
+        value: "120000"
+      - key: FAULTLINE_SOURCE_TIMEOUT_MS
+        value: "12000"
+      - key: FAULTLINE_SOURCE_RETRIES
+        value: "1"
+      - key: FAULTLINE_CORS_ORIGINS
+        sync: false
