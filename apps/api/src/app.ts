@@ -19,6 +19,7 @@ import {
   getSourceHealth,
 } from "./db.js";
 import { getRuntimeConfig, scheduleAt } from "./config.js";
+import { handleApiCors } from "./cors.js";
 import {
   normalizePublishedPostText,
   normalizeSourceProse,
@@ -177,6 +178,10 @@ export async function handleRequest(
     request.url ?? "/",
     `http://${request.headers.host ?? "localhost"}`,
   );
+
+  if (handleApiCors(request, response, url.pathname)) {
+    return;
+  }
 
   /*
    * Health endpoint
