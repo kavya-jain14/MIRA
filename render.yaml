@@ -8,7 +8,6 @@ services:
     healthCheckPath: /health
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    maxShutdownDelaySeconds: 30
     disk:
       name: mira-data
       mountPath: /data
