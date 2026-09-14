@@ -181,6 +181,20 @@ This log records material AI assistance used during the Vicodathon build. It is 
 - **Related branch/PR:** `agent/autonomy-ledger-repair`, PR #17; final legacy-ledger rationale refinement on `agent/ledger-reason-repair`.
 - **Secrets or personal data:** None included.
 
+## 2026-09-14 — KAVYA-12 Render and Vercel deployment migration
+
+- **Tool:** ChatGPT Work (Codex)
+- **Human owner:** Kavya Jain
+- **Objective:** Replace the failed Railway release with a durable Render backend and Vercel frontend.
+- **Prompt or interaction summary:** Kavya reported that Railway returned a deployment error and directed the project to use Render and Vercel instead.
+- **Output used:** Added a Render Blueprint for the Docker API, embedded scheduler, Singapore region, health checks, and persistent SQLite disk; added a Vercel monorepo build configuration for the React control room; implemented exact-origin CORS and preflight handling for the split deployment; removed Railway-specific configuration; and updated release documentation.
+- **Files influenced:** `render.yaml`, `vercel.json`, backend CORS/API/tests, frontend environment example, deployment documentation, README, and this log.
+- **Human constraints applied:** Preserved the read-only feed, one-time initialization contract, append-only posts, durable scheduling, single-agent architecture, and public evaluator access.
+- **Automated verification performed:** Strict TypeScript, complete tests, production build, whitespace validation, and live split-origin checks are required before release.
+- **Related branch/PR:** `kavya/render-vercel-migration`.
+- **Rejected or changed AI suggestions:** Did not use a free Render web service because idle spin-down would stop the scheduler and its ephemeral filesystem would erase SQLite state.
+- **Secrets or personal data:** None included.
+
 ## Entry template
 
 Copy this section for each material AI-assisted change:
