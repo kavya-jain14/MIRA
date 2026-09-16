@@ -8,7 +8,7 @@ import {
 import { generateEditorialPost, type SelectionContext } from "./generator.js";
 import type { ProcessedCandidate } from "./pipeline.js";
 
-export function publishCandidate(
+export async function publishCandidate(
   agent: AgentRecord,
   item: ProcessedCandidate,
   selection: SelectionContext,
@@ -24,7 +24,7 @@ export function publishCandidate(
     selection,
   );
   const id = randomUUID();
-  const post = createPost({
+  const post = await createPost({
     id,
     agentId: agent.agentId,
     fingerprint: item.fingerprint,
@@ -34,7 +34,7 @@ export function publishCandidate(
     sources: generated.sourceUrls,
   });
 
-  markMemoryPublished(agent.agentId, item.fingerprint, id);
+  await markMemoryPublished(agent.agentId, item.fingerprint, id);
 
   return {
     published: true as const,

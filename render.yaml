@@ -2,19 +2,17 @@ services:
   - type: web
     name: mira-autonomous-api
     runtime: docker
-    plan: 0.5c-512mb
+    plan: free
     region: singapore
     autoDeployTrigger: checksPass
     healthCheckPath: /health
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    disk:
-      name: mira-data
-      mountPath: /data
-      sizeGB: 1
     envVars:
-      - key: FAULTLINE_DB_PATH
-        value: /data/faultline.sqlite
+      - key: DATABASE_URL
+        sync: false
+      - key: FAULTLINE_DB_POOL_SIZE
+        value: "3"
       - key: FAULTLINE_EMBEDDED_SCHEDULER
         value: "true"
       - key: FAULTLINE_INITIAL_DELAY_MS

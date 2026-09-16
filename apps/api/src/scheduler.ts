@@ -21,8 +21,8 @@ export async function runDueAgentsOnce(
 ): Promise<SchedulerTickResult> {
   const clock = options.clock ?? (() => new Date());
   const now = clock();
-  touchWorkerHeartbeat(now.toISOString());
-  const dueAgentIds = getDueAgentIds(now.toISOString());
+  await touchWorkerHeartbeat(now.toISOString());
+  const dueAgentIds = await getDueAgentIds(now.toISOString());
   const results = await Promise.allSettled(
     dueAgentIds.map((agentId) =>
       runAgentOnce(agentId, {

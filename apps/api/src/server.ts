@@ -1,11 +1,14 @@
 import { createServer } from "node:http";
 
 import { handleRequest } from "./app.js";
+import { initializeDatabase } from "./db.js";
 import { startAutonomousScheduler } from "./scheduler.js";
 import { serveWebApp } from "./static.js";
 
 const host = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? 3000);
+
+await initializeDatabase();
 
 const server = createServer(
   (request, response) => {

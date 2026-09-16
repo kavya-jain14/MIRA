@@ -195,6 +195,20 @@ This log records material AI assistance used during the Vicodathon build. It is 
 - **Rejected or changed AI suggestions:** Did not use a free Render web service because idle spin-down would stop the scheduler and its ephemeral filesystem would erase SQLite state.
 - **Secrets or personal data:** None included.
 
+## 2026-09-16 — KAVYA-13 fully free durable deployment
+
+- **Tool:** ChatGPT Work (Codex)
+- **Human owner:** Kavya Jain
+- **Objective:** Replace the blocked paid Render disk design with a zero-cost Render, Vercel, Neon, and GitHub Actions deployment while preserving autonomy and durable memory.
+- **Prompt or interaction summary:** Kavya asked whether a free option existed, approved the fully free route, and directed the implementation to continue.
+- **Output used:** Migrated persistence from process-local SQLite to Postgres; preserved leases, transactions, unique publication constraints, append-only posts, and decision memory; changed the Render Blueprint to the Free plan; added a due-only scheduler tick and a ten-minute GitHub Actions wake-up; retained the embedded scheduler while Render is awake; and documented the Neon/Render/Vercel release sequence.
+- **Files influenced:** Postgres database adapter and all async callers, backend tests, Dockerfile, `render.yaml`, scheduled workflow, dependencies, README, deployment documentation, and this log.
+- **Human constraints applied:** No card or paid resource; no feed-triggered generation; no manual publication endpoint; one autonomous agent; public evaluator endpoints; durable state must survive Render sleep and redeploy.
+- **Automated verification performed:** Strict TypeScript and all 38 tests passed after the database migration; the full production verification and container build are required before release.
+- **Related branch/PR:** `kavya/free-render-postgres`.
+- **Rejected or changed AI suggestions:** Superseded the earlier paid Render persistent-disk plan. Render Free is used only for stateless compute; Neon owns durable state, and GitHub Actions supplies the wake/tick required by sleeping compute.
+- **Secrets or personal data:** None included.
+
 ## Entry template
 
 Copy this section for each material AI-assisted change:

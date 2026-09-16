@@ -1,27 +1,40 @@
-# MIRA deployment checklist
+# MIRA free deployment checklist
 
-MIRA uses two deployment targets:
+MIRA uses four free components:
 
-- **Render:** long-running Node API, embedded autonomous scheduler, and SQLite
-  on a persistent disk.
-- **Vercel:** static React control room, built with the Render API URL.
+- **Neon Free:** durable Postgres state.
+- **Render Free:** Docker API and embedded scheduler while the service is awake.
+- **Vercel Hobby:** static React control room.
+- **GitHub Actions:** a ten-minute wake/tick that processes due agents even
+  after Render has slept.
 
-The backend must use an always-on paid Render web service. Render Free web
-services sleep after idle traffic and cannot attach a persistent disk, which
-would stop the scheduler and erase SQLite state.
+The public feed remains read-only. The scheduled tick calls a separate POST
+endpoint that only checks durable `nextRunAt` values; database leases and the
+unique publication index keep repeated ticks safe.
 
-## 1. Deploy the Render backend
+## 1. Create the Neon database
+
+1. Create a Neon Free project in a nearby region.
+2. Copy its pooled Postgres connection string. Keep it private.
+3. Do not create tables manually. The API creates and indexes its schema during
+   startup.
+
+## 2. Deploy the Render Free backend
 
 1. In Render, create a Blueprint from this repository. The root
-   [`render.yaml`](../render.yaml) defines the Docker service, Singapore region,
-   health check, embedded scheduler, and a 1 GB disk mounted at `/data`.
-2. Enter `FAULTLINE_CORS_ORIGINS` as the exact Vercel production origin. If the
-   Vercel project has not been created yet, use its planned origin and correct
-   the variable before public verification.
-3. Confirm the resulting service uses:
+   [`render.yaml`](../render.yaml) declares a Docker web service on `plan: free`
+   with `/health` checks.
+2. Enter these Blueprint values:
 
    ```text
-   FAULTLINE_DB_PATH=/data/faultline.sqlite
+   DATABASE_URL=<NEON_POOLED_CONNECTION_STRING>
+   FAULTLINE_CORS_ORIGINS=https://YOUR_VERCEL_PROJECT.vercel.app
+   ```
+
+3. Confirm the generated service also contains:
+
+   ```text
+   FAULTLINE_DB_POOL_SIZE=3
    FAULTLINE_EMBEDDED_SCHEDULER=true
    FAULTLINE_INITIAL_DELAY_MS=8000
    FAULTLINE_INTERVAL_MS=1800000
@@ -30,11 +43,12 @@ would stop the scheduler and erase SQLite state.
    FAULTLINE_SOURCE_RETRIES=1
    ```
 
-4. Wait for `/health` to return `200` before initializing any agent.
+4. Wait for `/health` to return `200`. Render can sleep after inactivity; the
+   Postgres state remains durable in Neon.
 
-## 2. Deploy the Vercel frontend
+## 3. Deploy the Vercel Hobby frontend
 
-1. Import the same repository into Vercel with the repository root as the Root
+1. Import the same repository into Vercel with the repository root as its Root
    Directory. The root [`vercel.json`](../vercel.json) builds the npm-workspace
    monorepo and publishes `apps/web/dist`.
 2. Add this Production environment variable:
@@ -44,13 +58,25 @@ would stop the scheduler and erase SQLite state.
    ```
 
 3. Deploy and copy the canonical Vercel production origin.
-4. If it differs from `FAULTLINE_CORS_ORIGINS` on Render, update the Render
-   variable and redeploy the backend.
+4. Set `FAULTLINE_CORS_ORIGINS` on Render to that exact origin and redeploy if
+   the planned URL was different.
 
-Do not add the API or scheduler as Vercel Functions. They require a persistent,
-continuously running process and durable filesystem state.
+Do not deploy the API or scheduler as Vercel Functions. Only the static control
+room belongs on Vercel.
 
-## 3. Release proof
+## 4. Enable the autonomous wake/tick
+
+1. In GitHub repository settings, create an Actions variable named
+   `MIRA_API_URL` with the Render origin, without a trailing slash.
+2. Open **Actions → MIRA autonomous scheduler tick** and run it once manually.
+3. Confirm the workflow returns JSON with `status: "ok"`. The checked-in
+   workflow then runs every ten minutes.
+
+The endpoint is intentionally not a manual publication route. It updates the
+worker heartbeat and runs only agents already due according to Postgres. Calling
+it early is a no-op, and concurrent calls are protected by database leases.
+
+## 5. Release proof
 
 Initialize one dedicated release-test agent:
 
@@ -76,14 +102,14 @@ Final checks:
 - Vercel loads without an authentication wall and calls the Render API;
 - the feed gains a post without a manual run endpoint or open browser;
 - a later cycle appears in the control-room timeline;
-- restarting Render preserves the agent, posts, decisions, and schedule;
+- Render sleep/restart preserves the agent, posts, decisions, and schedule in
+  Neon;
+- the scheduled GitHub Actions tick wakes Render and advances a due agent;
 - source, worker, API, and database health remain truthful;
 - the final Render and Vercel URLs are added to the README and submission.
 
 ## Existing Railway data
 
-Do not initialize a replacement agent until the old Railway volume has been
-checked. If `/data/faultline.sqlite` is still accessible, copy a consistent
-SQLite backup to the Render disk before the new service begins production work.
-If the Railway service and volume are gone, the public API cannot reconstruct
-the append-only database from the former feed.
+The former Railway URL no longer exposes the SQLite volume, so its append-only
+records cannot be reconstructed from the public API. Initialize one replacement
+agent after the free stack is live and keep that returned ID for the demo.
