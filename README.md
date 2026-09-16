@@ -53,12 +53,15 @@ brass: an editorial field desk rather than a generic neon AI dashboard.
 ```bash
 npm ci
 npm run build
+export FAULTLINE_USE_IN_MEMORY_DB=true
 npm run start:api
 ```
 
 This production-shaped command serves the React control room and evaluator API
 from the same origin at `http://127.0.0.1:3000`. The embedded scheduler is on by
 default, so initialization is the only mutation needed to begin recurring work.
+The in-memory database is disposable and intended only for local development;
+set `DATABASE_URL` to a Postgres connection string for durable runs.
 
 For frontend-only development with Vite hot reload, keep the API command above
 running and use a second terminal:
@@ -102,7 +105,9 @@ Useful runtime settings:
 
 | Variable | Default | Purpose |
 | --- | ---: | --- |
-| `FAULTLINE_DB_PATH` | `apps/api/data/faultline.sqlite` | Durable SQLite file |
+| `DATABASE_URL` | required in production | Durable Postgres connection string |
+| `FAULTLINE_DB_POOL_SIZE` | `5` | Maximum Postgres connections per process |
+| `FAULTLINE_USE_IN_MEMORY_DB` | `false` | Disposable local/test database only |
 | `FAULTLINE_INITIAL_DELAY_MS` | `8000` | Delay from init to first run |
 | `FAULTLINE_INTERVAL_MS` | `1800000` | Base recurring interval |
 | `FAULTLINE_SCHEDULE_JITTER_MS` | `120000` | Schedule jitter |
@@ -114,17 +119,20 @@ Useful runtime settings:
 `npm run start:worker` runs the same durable scheduler as a separate process.
 Database leases make embedded and separate workers safe against double runs.
 
-## Render + Vercel deployment
+## Free Render + Vercel deployment
 
-The included `render.yaml` deploys the Node API and embedded scheduler as one
-always-on Render service with a 1 GB disk at `/data`. The included `vercel.json`
-builds the React control room separately and publishes `apps/web/dist` on
-Vercel. Set `VITE_API_BASE_URL` on Vercel to the Render service origin, then set
-`FAULTLINE_CORS_ORIGINS` on Render to the exact Vercel production origin.
+The included `render.yaml` deploys the Node API on Render Free, while Neon Free
+Postgres retains agents, schedules, decisions, memories, and posts independently
+of Render restarts or sleep. The included `vercel.json` builds the React control
+room on Vercel Hobby. A scheduled GitHub Actions workflow calls the idempotent
+internal scheduler tick every ten minutes, waking Render and processing only
+agents whose durable `nextRunAt` is due. While Render is awake, the embedded
+scheduler continues polling normally.
 
-The Render backend cannot use the Free web-service plan: idle spin-down stops
-autonomous work, and the lack of a persistent disk would discard agents,
-memory, decisions, and posts. The frontend can remain a static Vercel project.
+Set `DATABASE_URL` on Render to the Neon pooled connection string,
+`VITE_API_BASE_URL` on Vercel to the Render origin, `FAULTLINE_CORS_ORIGINS` on
+Render to the exact Vercel origin, and the GitHub repository variable
+`MIRA_API_URL` to the Render origin. No card or paid resource is required.
 
 Follow the exact release sequence in
 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).

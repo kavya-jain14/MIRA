@@ -9,11 +9,9 @@ FROM node:24-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
-ENV FAULTLINE_DB_PATH=/data/faultline.sqlite
 
 WORKDIR /app
 COPY --from=build /app /app
-RUN mkdir -p /data
 
 EXPOSE 3000
 CMD ["npm", "run", "start:api"]

@@ -51,7 +51,7 @@ export async function runAgentOnce(
   agentId: string,
   options: RunAgentOptions = {},
 ): Promise<WorkerRunResult> {
-  const agent = getAgent(agentId);
+  const agent = await getAgent(agentId);
 
   if (!agent) {
     throw new Error(`Agent ${agentId} does not exist.`);
@@ -61,7 +61,7 @@ export async function runAgentOnce(
   const clock = options.clock ?? (() => new Date());
   const leaseToken = randomUUID();
   const leaseStartedAt = clock();
-  const acquired = acquireAgentLease({
+  const acquired = await acquireAgentLease({
     agentId,
     token: leaseToken,
     now: leaseStartedAt.toISOString(),
@@ -89,10 +89,10 @@ export async function runAgentOnce(
   let duplicates = 0;
   let published = 0;
 
-  createRun({ id: runId, agentId, startedAt });
+  await createRun({ id: runId, agentId, startedAt });
 
   try {
-    updateAgentWorkerState(agentId, {
+    await updateAgentWorkerState(agentId, {
       workerState: "discovering",
       workerHeartbeatAt: startedAt,
     });
@@ -104,20 +104,22 @@ export async function runAgentOnce(
       .filter((result) => result.error !== null)
       .map((result) => `${result.source}: ${result.error}`);
 
-    for (const result of sourceResults) {
-      upsertSourceHealth({
-        key: result.source,
-        label: result.label,
-        state: result.error ? "degraded" : "healthy",
-        detail: result.error
-          ? `Fetch failed after ${result.attempts} attempt(s): ${result.error}`
-          : `${result.candidates.length} candidate(s) fetched in ${result.attempts} attempt(s).`,
-        checkedAt: result.checkedAt,
-      });
-    }
+    await Promise.all(
+      sourceResults.map((result) =>
+        upsertSourceHealth({
+          key: result.source,
+          label: result.label,
+          state: result.error ? "degraded" : "healthy",
+          detail: result.error
+            ? `Fetch failed after ${result.attempts} attempt(s): ${result.error}`
+            : `${result.candidates.length} candidate(s) fetched in ${result.attempts} attempt(s).`,
+          checkedAt: result.checkedAt,
+        }),
+      ),
+    );
 
     discovered = candidates.length;
-    updateAgentWorkerState(agentId, {
+    await updateAgentWorkerState(agentId, {
       workerState: "judging",
       workerHeartbeatAt: clock().toISOString(),
     });
@@ -129,8 +131,8 @@ export async function runAgentOnce(
     const completedAt = clock();
     const degraded = sourceErrors.length > 0;
 
-    withTransaction(() => {
-      const pipelineResult = pipeline.process(candidates, completedAt);
+    await withTransaction(async () => {
+      const pipelineResult = await pipeline.process(candidates, completedAt);
       duplicates = pipelineResult.duplicates.length;
 
       const qualified = orderedCandidates(pipelineResult.accepted);
@@ -140,7 +142,7 @@ export async function runAgentOnce(
       );
       rejected = pipelineResult.processed.length - selected.length;
 
-      updateAgentWorkerState(agentId, {
+      await updateAgentWorkerState(agentId, {
         workerState: selected.length > 0 ? "publishing" : "judging",
         workerHeartbeatAt: completedAt.toISOString(),
       });
@@ -158,7 +160,7 @@ export async function runAgentOnce(
             ? `Deferred at ${item.editorialScore.total}/100 because a stronger candidate was selected for this paced publishing cycle.`
             : item.reasons.join(" ");
 
-        createDecision({
+        await createDecision({
           id: randomUUID(),
           runId,
           agentId,
@@ -172,7 +174,7 @@ export async function runAgentOnce(
       }
 
       for (const item of selected) {
-        const result = publishCandidate(agent, item, {
+        const result = await publishCandidate(agent, item, {
           candidatesConsidered: discovered,
           candidatesRejected: rejected,
           runnerUpScore: qualified[1]?.editorialScore.total ?? null,
@@ -198,7 +200,7 @@ export async function runAgentOnce(
           : "All configured primary sources responded.",
       ].join(" ");
 
-      completeRun({
+      await completeRun({
         id: runId,
         completedAt: completedAt.toISOString(),
         status: degraded ? "partial" : "completed",
@@ -207,7 +209,7 @@ export async function runAgentOnce(
         published,
         summary,
       });
-      updateAgentWorkerState(agentId, {
+      await updateAgentWorkerState(agentId, {
         workerState: degraded ? "degraded" : "idle",
         lastRunAt: completedAt.toISOString(),
         nextRunAt,
@@ -228,8 +230,8 @@ export async function runAgentOnce(
     const completedAt = clock();
     const message = error instanceof Error ? error.message : String(error);
 
-    withTransaction(() => {
-      completeRun({
+    await withTransaction(async () => {
+      await completeRun({
         id: runId,
         completedAt: completedAt.toISOString(),
         status: "failed",
@@ -238,7 +240,7 @@ export async function runAgentOnce(
         published,
         summary: `Worker failed safely: ${message}`,
       });
-      updateAgentWorkerState(agentId, {
+      await updateAgentWorkerState(agentId, {
         workerState: "degraded",
         lastRunAt: completedAt.toISOString(),
         nextRunAt: scheduleAt(runtime.failureRetryMs, 0, completedAt),
@@ -248,6 +250,6 @@ export async function runAgentOnce(
 
     throw error;
   } finally {
-    releaseAgentLease(agentId, leaseToken);
+    await releaseAgentLease(agentId, leaseToken);
   }
 }

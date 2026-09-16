@@ -32,17 +32,21 @@ export class EditorialPipeline {
     private readonly personaDomain: string,
   ) {}
 
-  process(candidates: SourceCandidate[], now = new Date()): PipelineResult {
+  async process(
+    candidates: SourceCandidate[],
+    now = new Date(),
+  ): Promise<PipelineResult> {
     const processed: ProcessedCandidate[] = [];
 
     for (const candidate of candidates) {
       const fingerprint = createFingerprint(candidate);
-      const existing = this.memory.get(fingerprint);
+      const existing = await this.memory.get(fingerprint);
       const seenBefore = existing !== undefined;
-      const similarityToPublished = this.memory.similarityToPublished(candidate);
+      const similarityToPublished =
+        await this.memory.similarityToPublished(candidate);
 
       if (existing?.publishedPostId) {
-        this.memory.remember(candidate, fingerprint, now.toISOString());
+        await this.memory.remember(candidate, fingerprint, now.toISOString());
 
         const editorialScore = rejectedByHardGate("near_duplicate", [
           "Rejected because this exact source/topic has already been published.",
@@ -63,7 +67,7 @@ export class EditorialPipeline {
       const safety = evaluateSourceSafety(candidate);
 
       if (!safety.safe) {
-        this.memory.remember(candidate, fingerprint, now.toISOString());
+        await this.memory.remember(candidate, fingerprint, now.toISOString());
 
         const editorialScore = rejectedByHardGate(
           "unsafe_source_content",
@@ -88,7 +92,7 @@ export class EditorialPipeline {
         now,
       });
 
-      this.memory.remember(candidate, fingerprint, now.toISOString());
+      await this.memory.remember(candidate, fingerprint, now.toISOString());
 
       processed.push({
         candidate,

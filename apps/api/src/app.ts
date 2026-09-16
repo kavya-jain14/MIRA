@@ -24,6 +24,7 @@ import {
   normalizePublishedPostText,
   normalizeSourceProse,
 } from "./editorial/generator.js";
+import { runDueAgentsOnce } from "./scheduler.js";
 
 function sendJson(
   response: ServerResponse,
@@ -64,8 +65,8 @@ function createAgentId(personaName: string): string {
   return `faultline-${slug || "agent"}-${randomUUID().slice(0, 6)}`;
 }
 
-export function buildControlRoom(agentId: string) {
-  const agent = getAgent(agentId);
+export async function buildControlRoom(agentId: string) {
+  const agent = await getAgent(agentId);
 
   if (!agent) {
     return null;
@@ -77,7 +78,14 @@ export function buildControlRoom(agentId: string) {
     ? Date.now() - Date.parse(agent.workerHeartbeatAt)
     : Number.POSITIVE_INFINITY;
   const workerHealthy = heartbeatAge <= Math.max(60_000, runtime.pollMs * 5);
-  const sourceHealth = getSourceHealth();
+  const [sourceHealth, postsPublished, candidatesRejected, decisions, runs] =
+    await Promise.all([
+      getSourceHealth(),
+      countPosts(agentId),
+      countRejected(agentId),
+      getRejectedDecisions(agentId),
+      getRuns(agentId),
+    ]);
   const sourceState =
     sourceHealth.length === 0
       ? "unknown"
@@ -94,13 +102,12 @@ export function buildControlRoom(agentId: string) {
       initializedAt: agent.initializedAt,
       lastRunAt: agent.lastRunAt,
       nextRunAt: agent.nextRunAt,
-      postsPublished: countPosts(agentId),
-      candidatesRejected: countRejected(agentId),
+      postsPublished,
+      candidatesRejected,
       workerState: agent.workerState,
     },
 
-    editorialLedger: getRejectedDecisions(agentId)
-      .map((decision) => ({
+    editorialLedger: decisions.map((decision) => ({
         id: decision.id,
         title: decision.title,
         finalScore: decision.finalScore,
@@ -109,7 +116,7 @@ export function buildControlRoom(agentId: string) {
         decidedAt: decision.decidedAt,
       })),
 
-    runs: getRuns(agentId).map((run) => ({
+    runs: runs.map((run) => ({
       id: run.id,
       startedAt: run.startedAt,
       completedAt: run.completedAt,
@@ -150,7 +157,7 @@ export function buildControlRoom(agentId: string) {
         key: "database",
         label: "Database",
         state: "healthy",
-        detail: "Durable SQLite database is available.",
+        detail: "Durable Postgres database is available.",
         checkedAt,
       },
       {
@@ -194,6 +201,27 @@ export async function handleRequest(
       status: "ok",
       service: "faultline-api",
       checkedAt: now(),
+    });
+
+    return;
+  }
+
+  /*
+   * POST /api/internal/scheduler/tick
+   *
+   * Render Free can sleep between requests. A scheduled GitHub Actions
+   * request wakes the service and processes only agents whose durable
+   * nextRunAt is due. Database leases keep repeated ticks idempotent.
+   */
+  if (
+    request.method === "POST" &&
+    url.pathname === "/api/internal/scheduler/tick"
+  ) {
+    const result = await runDueAgentsOnce();
+    sendJson(response, 200, {
+      status: "ok",
+      checkedAt: now(),
+      ...result,
     });
 
     return;
@@ -246,7 +274,7 @@ export async function handleRequest(
       parsed.data.persona.name,
     );
 
-    createAgent({
+    await createAgent({
       agentId,
       personaName: parsed.data.persona.name,
       personaDomain: parsed.data.persona.domain,
@@ -290,7 +318,7 @@ export async function handleRequest(
       return;
     }
 
-    if (!getAgent(agentId)) {
+    if (!(await getAgent(agentId))) {
       sendJson(response, 404, {
         message: "Agent not found.",
       });
@@ -298,7 +326,7 @@ export async function handleRequest(
       return;
     }
 
-    const posts = getPosts(agentId);
+    const posts = await getPosts(agentId);
 
     const payload = FeedResponseSchema.parse({
       posts: posts.map((post) => ({
@@ -335,7 +363,7 @@ export async function handleRequest(
       return;
     }
 
-    const snapshot = buildControlRoom(agentId);
+    const snapshot = await buildControlRoom(agentId);
 
     if (!snapshot) {
       sendJson(response, 404, {

@@ -89,16 +89,16 @@ export function createFingerprint(candidate: SourceCandidate): string {
 export class EditorialMemory {
   constructor(private readonly agentId: string) {}
 
-  has(fingerprint: string): boolean {
-    return getMemory(this.agentId, fingerprint) !== null;
+  async has(fingerprint: string): Promise<boolean> {
+    return (await getMemory(this.agentId, fingerprint)) !== null;
   }
 
-  remember(
+  async remember(
     candidate: SourceCandidate,
     fingerprint: string,
     observedAt = new Date().toISOString(),
-  ): MemoryRecord {
-    const existing = getMemory(this.agentId, fingerprint);
+  ): Promise<MemoryRecord> {
+    const existing = await getMemory(this.agentId, fingerprint);
 
     return upsertMemory({
       agentId: this.agentId,
@@ -113,11 +113,11 @@ export class EditorialMemory {
     });
   }
 
-  similarityToPublished(candidate: SourceCandidate): number {
+  async similarityToPublished(candidate: SourceCandidate): Promise<number> {
     const candidateTokens = tokens(`${candidate.title} ${candidate.summary}`);
     let highest = 0;
 
-    for (const memory of listMemories(this.agentId)) {
+    for (const memory of await listMemories(this.agentId)) {
       if (!memory.publishedPostId) {
         continue;
       }
@@ -131,11 +131,11 @@ export class EditorialMemory {
     return Number(highest.toFixed(3));
   }
 
-  get(fingerprint: string): MemoryRecord | undefined {
-    return getMemory(this.agentId, fingerprint) ?? undefined;
+  async get(fingerprint: string): Promise<MemoryRecord | undefined> {
+    return (await getMemory(this.agentId, fingerprint)) ?? undefined;
   }
 
-  size(): number {
-    return listMemories(this.agentId).length;
+  async size(): Promise<number> {
+    return (await listMemories(this.agentId)).length;
   }
 }

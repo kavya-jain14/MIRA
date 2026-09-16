@@ -8,8 +8,7 @@ import type {
   SourceCandidate,
 } from "./sources/types.js";
 
-const databasePath = `/tmp/faultline-backend-test-${process.pid}-${Date.now()}.sqlite`;
-process.env.FAULTLINE_DB_PATH = databasePath;
+process.env.FAULTLINE_USE_IN_MEMORY_DB = "true";
 
 const NOW = new Date("2026-08-09T12:00:00.000Z");
 
@@ -83,12 +82,48 @@ beforeAll(async () => {
   workerModule = await import("./worker.js");
   schedulerModule = await import("./scheduler.js");
   appModule = await import("./app.js");
+  await dbModule.initializeDatabase();
 });
 
 describe("durable autonomous runtime", () => {
+  it("exposes an idempotent scheduler tick without feed traffic", async () => {
+    const server = createServer((request, response) => {
+      void appModule.handleRequest(request, response);
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Test server did not expose a TCP address.");
+    }
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:${address.port}/api/internal/scheduler/tick`,
+        { method: "POST" },
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        status: "ok",
+        due: 0,
+        completed: 0,
+        failed: 0,
+      });
+    } finally {
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+    }
+  });
+
   it("publishes one paced, evaluator-compatible post and persists real telemetry", async () => {
     const agentId = "agent-first-cycle";
-    dbModule.createAgent({
+    await dbModule.createAgent({
       agentId,
       personaName: "Mira",
       personaDomain: "AI Reliability & Security",
@@ -114,7 +149,7 @@ describe("durable autonomous runtime", () => {
       published: 1,
     });
 
-    const posts = dbModule.getPosts(agentId);
+    const posts = await dbModule.getPosts(agentId);
     expect(posts).toHaveLength(1);
     expect(posts[0]?.text).toContain("Signal —");
     expect(posts[0]?.text).toContain("Fault line —");
@@ -123,7 +158,7 @@ describe("durable autonomous runtime", () => {
     expect(posts[0]?.rationale).toContain("Relevant now because");
     expect(posts[0]?.rationale).toContain("Chosen over");
 
-    const snapshot = appModule.buildControlRoom(agentId);
+    const snapshot = await appModule.buildControlRoom(agentId);
     expect(snapshot?.runs).toHaveLength(1);
     expect(snapshot?.editorialLedger).toHaveLength(1);
     expect(snapshot?.editorialLedger[0]?.title).toBe(weakCandidate().title);
@@ -153,14 +188,14 @@ describe("durable autonomous runtime", () => {
       published: 0,
       rejected: 2,
     });
-    expect(dbModule.getPosts(agentId)).toHaveLength(1);
-    expect(dbModule.countRejected(agentId)).toBe(1);
-    expect(dbModule.getRejectedDecisions(agentId)).toHaveLength(1);
+    expect(await dbModule.getPosts(agentId)).toHaveLength(1);
+    expect(await dbModule.countRejected(agentId)).toBe(1);
+    expect(await dbModule.getRejectedDecisions(agentId)).toHaveLength(1);
   });
 
   it("publishes a qualified deferred topic during a later autonomous cycle", async () => {
     const agentId = "agent-paced-backlog";
-    dbModule.createAgent({
+    await dbModule.createAgent({
       agentId,
       personaName: "Mira",
       personaDomain: "AI Reliability & Security",
@@ -185,22 +220,22 @@ describe("durable autonomous runtime", () => {
 
     expect(first).toMatchObject({ published: 1, rejected: 1, duplicates: 0 });
     expect(second).toMatchObject({ published: 1, rejected: 1, duplicates: 1 });
-    expect(dbModule.getPosts(agentId)).toHaveLength(2);
-    expect(dbModule.countRejected(agentId)).toBe(0);
-    expect(appModule.buildControlRoom(agentId)?.editorialLedger).toHaveLength(0);
+    expect(await dbModule.getPosts(agentId)).toHaveLength(2);
+    expect(await dbModule.countRejected(agentId)).toBe(0);
+    expect((await appModule.buildControlRoom(agentId))?.editorialLedger).toHaveLength(0);
   });
 
-  it("collapses historical duplicate decisions into a current unique ledger", () => {
+  it("collapses historical duplicate decisions into a current unique ledger", async () => {
     const agentId = "agent-ledger-compaction";
     const runId = "run-ledger-compaction";
-    dbModule.createAgent({
+    await dbModule.createAgent({
       agentId,
       personaName: "Mira",
       personaDomain: "AI Reliability & Security",
       initializedAt: NOW.toISOString(),
       nextRunAt: new Date(NOW.getTime() + 24 * 60 * 60_000).toISOString(),
     });
-    dbModule.createRun({ id: runId, agentId, startedAt: NOW.toISOString() });
+    await dbModule.createRun({ id: runId, agentId, startedAt: NOW.toISOString() });
 
     const createDecision = (
       id: string,
@@ -209,8 +244,8 @@ describe("durable autonomous runtime", () => {
       decidedAt: string,
       reason = verdict === "publish" ? "Selected." : "Withheld.",
       finalScore = verdict === "publish" ? 90 : 40,
-    ): void => {
-      dbModule.createDecision({
+    ): Promise<void> => {
+      return dbModule.createDecision({
         id,
         runId,
         agentId,
@@ -223,7 +258,7 @@ describe("durable autonomous runtime", () => {
       });
     };
 
-    createDecision(
+    await createDecision(
       "reject-a-editorial",
       "https://example.com/a",
       "reject",
@@ -231,7 +266,7 @@ describe("durable autonomous runtime", () => {
       "Rejected at 40/100 because the topic did not clear the editorial bar.",
       40,
     );
-    createDecision(
+    await createDecision(
       "reject-a-duplicate",
       "https://example.com/a",
       "reject",
@@ -239,24 +274,24 @@ describe("durable autonomous runtime", () => {
       "Rejected because this exact source/topic fingerprint already exists in durable editorial memory.",
       0,
     );
-    createDecision("reject-b", "https://example.com/b", "reject", NOW.toISOString());
-    createDecision(
+    await createDecision("reject-b", "https://example.com/b", "reject", NOW.toISOString());
+    await createDecision(
       "publish-b",
       "https://example.com/b",
       "publish",
       new Date(NOW.getTime() + 2_000).toISOString(),
     );
 
-    expect(dbModule.countRejected(agentId)).toBe(1);
-    expect(dbModule.getRejectedDecisions(agentId).map((item) => item.id)).toEqual([
+    expect(await dbModule.countRejected(agentId)).toBe(1);
+    expect((await dbModule.getRejectedDecisions(agentId)).map((item) => item.id)).toEqual([
       "reject-a-editorial",
     ]);
-    expect(appModule.buildControlRoom(agentId)?.editorialLedger).toHaveLength(1);
+    expect((await appModule.buildControlRoom(agentId))?.editorialLedger).toHaveLength(1);
   });
 
   it("uses a durable lease so concurrent workers cannot double-publish", async () => {
     const agentId = "agent-concurrency";
-    dbModule.createAgent({
+    await dbModule.createAgent({
       agentId,
       personaName: "Mira",
       personaDomain: "AI Reliability & Security",
@@ -274,12 +309,12 @@ describe("durable autonomous runtime", () => {
     ]);
 
     expect(results.filter((result) => result.skipped)).toHaveLength(1);
-    expect(dbModule.getPosts(agentId)).toHaveLength(1);
+    expect(await dbModule.getPosts(agentId)).toHaveLength(1);
   });
 
   it("runs due agents without any feed or browser request", async () => {
     const agentId = "agent-scheduled";
-    dbModule.createAgent({
+    await dbModule.createAgent({
       agentId,
       personaName: "Mira",
       personaDomain: "AI Reliability & Security",
@@ -298,7 +333,7 @@ describe("durable autonomous runtime", () => {
     });
 
     expect(result).toEqual({ due: 1, completed: 1, failed: 0 });
-    expect(dbModule.getPosts(agentId)).toHaveLength(1);
+    expect(await dbModule.getPosts(agentId)).toHaveLength(1);
   });
 
   it("retries a transient source failure within a bounded timeout", async () => {

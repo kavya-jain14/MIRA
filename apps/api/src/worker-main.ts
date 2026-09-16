@@ -1,4 +1,7 @@
+import { initializeDatabase } from "./db.js";
 import { startAutonomousScheduler } from "./scheduler.js";
+
+await initializeDatabase();
 
 const scheduler = startAutonomousScheduler();
 
