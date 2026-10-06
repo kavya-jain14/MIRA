@@ -57,6 +57,10 @@ unique publication index keep repeated ticks safe.
    VITE_API_BASE_URL=https://YOUR_RENDER_SERVICE.onrender.com
    ```
 
+   Use the actual deployed origin. Vercel builds reject a missing value or a
+   placeholder so the frontend cannot accidentally send API requests to its
+   static hosting origin. Same-origin Render and local builds remain supported.
+
 3. Deploy and copy the canonical Vercel production origin.
 4. Set `FAULTLINE_CORS_ORIGINS` on Render to that exact origin and redeploy if
    the planned URL was different.
@@ -71,6 +75,12 @@ room belongs on Vercel.
 2. Open **Actions → MIRA autonomous scheduler tick** and run it once manually.
 3. Confirm the workflow returns JSON with `status: "ok"`. The checked-in
    workflow then runs every ten minutes.
+
+Until `MIRA_API_URL` is set, scheduled jobs are skipped because no backend is
+configured; this is not evidence of a working deployment. A manual run still
+fails with the setup instruction. Once configured, the job validates the JSON
+result and fails when any due agent fails, even if the endpoint returns HTTP
+200. Transient connection/server failures get at most two bounded attempts.
 
 The endpoint is intentionally not a manual publication route. It updates the
 worker heartbeat and runs only agents already due according to Postgres. Calling

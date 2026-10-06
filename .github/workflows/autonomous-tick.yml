@@ -14,21 +14,21 @@ concurrency:
 
 jobs:
   tick:
+    # No backend exists until MIRA_API_URL is configured. Manual runs still
+    # execute and report a missing URL as an actionable setup error.
+    if: github.event_name != 'schedule' || vars.MIRA_API_URL != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
       - name: Wake API and process due agents
         env:
           MIRA_API_URL: ${{ vars.MIRA_API_URL }}
-        run: |
-          if [ -z "$MIRA_API_URL" ]; then
-            echo "::error::Set the repository variable MIRA_API_URL to the Render origin."
-            exit 1
-          fi
-
-          curl --fail --show-error --silent \
-            --max-time 180 \
-            --retry 2 \
-            --retry-delay 5 \
-            --request POST \
-            "${MIRA_API_URL%/}/api/internal/scheduler/tick"
+        run: node scripts/scheduler-tick.mjs
