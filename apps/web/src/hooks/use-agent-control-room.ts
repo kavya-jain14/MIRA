@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ControlRoomSnapshot, FeedPost, PersonaInit } from "@faultline/contracts";
 
 import {
@@ -14,7 +14,7 @@ const POLL_INTERVAL_MS = 30_000;
 function readInitialAgentId(): string | null {
   const queryAgentId = new URLSearchParams(window.location.search).get("agentId");
   if (queryAgentId?.trim()) return queryAgentId.trim();
-  return window.localStorage.getItem(STORAGE_KEY);
+  try { return window.localStorage.getItem(STORAGE_KEY); } catch { return null; }
 }
 
 function messageFor(error: unknown): string {
@@ -41,6 +41,8 @@ export interface AgentControlRoomState {
 }
 
 export function useAgentControlRoom(): AgentControlRoomState {
+  const requestVersion = useRef(0);
+  const activeRequest = useRef<AbortController | null>(null);
   const [agentId, setAgentId] = useState<string | null>(readInitialAgentId);
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [snapshot, setSnapshot] = useState<ControlRoomSnapshot | null>(null);
@@ -54,13 +56,18 @@ export function useAgentControlRoom(): AgentControlRoomState {
 
   const refresh = useCallback(async (): Promise<void> => {
     if (agentId === null) return;
-    setIsRefreshing(true);
+    activeRequest.current?.abort();
+    const version = ++requestVersion.current;
     const controller = new AbortController();
+    activeRequest.current = controller;
+    setIsRefreshing(true);
 
     const [feedResult, telemetryResult] = await Promise.allSettled([
       retrieveFeed(agentId, controller.signal),
       retrieveControlRoom(agentId, controller.signal),
     ]);
+
+    if (controller.signal.aborted || version !== requestVersion.current) return;
 
     if (feedResult.status === "fulfilled") {
       setPosts(feedResult.value);
@@ -76,7 +83,7 @@ export function useAgentControlRoom(): AgentControlRoomState {
       setTelemetryError(messageFor(telemetryResult.reason));
     }
 
-    setLastSyncedAt(new Date().toISOString());
+    if (feedResult.status === "fulfilled") setLastSyncedAt(new Date().toISOString());
     setIsLoading(false);
     setIsRefreshing(false);
   }, [agentId]);
@@ -85,7 +92,11 @@ export function useAgentControlRoom(): AgentControlRoomState {
     if (agentId === null) return;
     void refresh();
     const poll = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
-    return () => window.clearInterval(poll);
+    return () => {
+      window.clearInterval(poll);
+      activeRequest.current?.abort();
+      requestVersion.current += 1;
+    };
   }, [agentId, refresh]);
 
   const initialize = useCallback(async (persona: PersonaInit): Promise<void> => {
@@ -93,7 +104,12 @@ export function useAgentControlRoom(): AgentControlRoomState {
     setInitializationError(null);
     try {
       const initializedAgentId = await initializeAgent(persona);
-      window.localStorage.setItem(STORAGE_KEY, initializedAgentId);
+      try { window.localStorage.setItem(STORAGE_KEY, initializedAgentId); } catch { /* Continue for this session. */ }
+      activeRequest.current?.abort();
+      requestVersion.current += 1;
+      setPosts([]);
+      setSnapshot(null);
+      setLastSyncedAt(null);
       setAgentId(initializedAgentId);
       setIsLoading(true);
     } catch (error) {
@@ -106,14 +122,22 @@ export function useAgentControlRoom(): AgentControlRoomState {
   const connect = useCallback((value: string): void => {
     const normalized = value.trim();
     if (!normalized) return;
-    window.localStorage.setItem(STORAGE_KEY, normalized);
+    try { window.localStorage.setItem(STORAGE_KEY, normalized); } catch { /* Continue for this session. */ }
+    activeRequest.current?.abort();
+    requestVersion.current += 1;
+    setPosts([]);
+    setSnapshot(null);
+    setLastSyncedAt(null);
     setInitializationError(null);
     setAgentId(normalized);
     setIsLoading(true);
   }, []);
 
   const disconnect = useCallback((): void => {
-    window.localStorage.removeItem(STORAGE_KEY);
+    try { window.localStorage.removeItem(STORAGE_KEY); } catch { /* Disconnect locally. */ }
+    activeRequest.current?.abort();
+    requestVersion.current += 1;
+    setIsRefreshing(false);
     setAgentId(null);
     setPosts([]);
     setSnapshot(null);
