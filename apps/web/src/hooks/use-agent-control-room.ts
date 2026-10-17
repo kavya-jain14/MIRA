@@ -62,30 +62,38 @@ export function useAgentControlRoom(): AgentControlRoomState {
     activeRequest.current = controller;
     setIsRefreshing(true);
 
-    const [feedResult, telemetryResult] = await Promise.allSettled([
-      retrieveFeed(agentId, controller.signal),
-      retrieveControlRoom(agentId, controller.signal),
-    ]);
+    const isCurrent = (): boolean =>
+      !controller.signal.aborted && version === requestVersion.current;
 
-    if (controller.signal.aborted || version !== requestVersion.current) return;
+    // Feed availability must not depend on control-room telemetry latency.
+    const feedRequest = retrieveFeed(agentId, controller.signal).then(
+      (result) => {
+        if (!isCurrent()) return;
+        setPosts(result);
+        setFeedError(null);
+        setLastSyncedAt(new Date().toISOString());
+        setIsLoading(false);
+      },
+      (error: unknown) => {
+        if (!isCurrent()) return;
+        setFeedError(messageFor(error));
+        setIsLoading(false);
+      },
+    );
+    const telemetryRequest = retrieveControlRoom(agentId, controller.signal).then(
+      (result) => {
+        if (!isCurrent()) return;
+        setSnapshot(result);
+        setTelemetryError(null);
+      },
+      (error: unknown) => {
+        if (!isCurrent()) return;
+        setTelemetryError(messageFor(error));
+      },
+    );
 
-    if (feedResult.status === "fulfilled") {
-      setPosts(feedResult.value);
-      setFeedError(null);
-    } else {
-      setFeedError(messageFor(feedResult.reason));
-    }
-
-    if (telemetryResult.status === "fulfilled") {
-      setSnapshot(telemetryResult.value);
-      setTelemetryError(null);
-    } else {
-      setTelemetryError(messageFor(telemetryResult.reason));
-    }
-
-    if (feedResult.status === "fulfilled") setLastSyncedAt(new Date().toISOString());
-    setIsLoading(false);
-    setIsRefreshing(false);
+    await Promise.all([feedRequest, telemetryRequest]);
+    if (isCurrent()) setIsRefreshing(false);
   }, [agentId]);
 
   useEffect(() => {

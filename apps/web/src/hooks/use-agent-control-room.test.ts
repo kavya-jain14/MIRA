@@ -51,3 +51,58 @@ it("does not mark a failed feed request as a successful sync", async () => {
   expect(result.current.lastSyncedAt).toBeNull();
   expect(result.current.feedError).not.toBeNull();
 });
+
+it("shows a healthy feed while telemetry is still pending", async () => {
+  let rejectTelemetry!: (reason: Error) => void;
+  vi.mocked(retrieveControlRoom).mockImplementation(() => new Promise((_, reject) => {
+    rejectTelemetry = reject;
+  }));
+  const posts: FeedPost[] = [{
+    id: "available", createdAt: "2026-08-08T12:10:00Z", text: "Available post",
+    rationale: "Evidence is available.", sources: ["https://example.com/source"],
+  }];
+  vi.mocked(retrieveFeed).mockResolvedValue(posts);
+  window.localStorage.setItem("faultline.connectedAgentId", "agent");
+  const { result } = renderHook(useAgentControlRoom);
+
+  await waitFor(() => expect(result.current.posts).toEqual(posts));
+  expect(result.current.isLoading).toBe(false);
+  expect(result.current.lastSyncedAt).not.toBeNull();
+  expect(result.current.isRefreshing).toBe(true);
+
+  await act(async () => rejectTelemetry(new Error("telemetry unavailable")));
+  expect(result.current.posts).toEqual(posts);
+  expect(result.current.telemetryError).not.toBeNull();
+  expect(result.current.isRefreshing).toBe(false);
+});
+
+it("reports feed failure without waiting for telemetry", async () => {
+  vi.mocked(retrieveControlRoom).mockImplementation(() => new Promise(() => {}));
+  vi.mocked(retrieveFeed).mockRejectedValue(new Error("feed unavailable"));
+  window.localStorage.setItem("faultline.connectedAgentId", "agent");
+  const { result } = renderHook(useAgentControlRoom);
+
+  await waitFor(() => expect(result.current.feedError).not.toBeNull());
+  expect(result.current.isLoading).toBe(false);
+  expect(result.current.lastSyncedAt).toBeNull();
+  act(() => result.current.disconnect());
+  expect(result.current.isRefreshing).toBe(false);
+});
+
+it("ignores a late telemetry failure after the feed settles and disconnects", async () => {
+  let rejectTelemetry!: (reason: Error) => void;
+  vi.mocked(retrieveControlRoom).mockImplementation(() => new Promise((_, reject) => {
+    rejectTelemetry = reject;
+  }));
+  vi.mocked(retrieveFeed).mockResolvedValue([]);
+  window.localStorage.setItem("faultline.connectedAgentId", "agent");
+  const { result } = renderHook(useAgentControlRoom);
+
+  await waitFor(() => expect(result.current.isLoading).toBe(false));
+  act(() => result.current.disconnect());
+  await act(async () => rejectTelemetry(new Error("stale telemetry")));
+
+  expect(result.current.telemetryError).toBeNull();
+  expect(result.current.lastSyncedAt).toBeNull();
+  expect(result.current.isRefreshing).toBe(false);
+});
