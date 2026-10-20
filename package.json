@@ -17,6 +17,7 @@
     "start:api": "npm run start --workspace @faultline/api",
     "start:worker": "npm run start:worker --workspace @faultline/api",
     "smoke:evaluator": "tsc -b --pretty false && node scripts/evaluator-smoke.mjs",
+    "smoke:persistence": "tsc -b --pretty false && node scripts/persistence-restart-smoke.mjs",
     "typecheck": "tsc -b --pretty false && npm run typecheck --workspace @faultline/web",
     "test": "vitest run",
     "test:watch": "vitest",
