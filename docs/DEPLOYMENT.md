@@ -118,6 +118,21 @@ Final checks:
 - source, worker, API, and database health remain truthful;
 - the final Render and Vercel URLs are added to the README and submission.
 
+## Local persistence regression
+
+Run `MIRA_TEST_DATABASE_URL=postgres://.../mira_test npm run smoke:persistence`
+against an otherwise idle, disposable local Postgres database. Local database
+names `mira_test`, `mira_oct20`, or either followed by `_...` are accepted; remote hosts are
+rejected. This command uses deterministic source fixtures and two separate Node
+processes to verify retained posts, decisions, editorial memory and schedule,
+transaction rollback, an interrupted worker's lease expiry, and duplicate
+suppression after restart. It removes its own test agent and associated records.
+No provider or production credentials are needed. This regression does not
+establish Render sleep/wake behavior or live-source availability; the release
+checks above still apply. When using a PGlite wire adapter, additionally set
+`MIRA_TEST_DATABASE_KIND=pglite` so the result identifies compatibility evidence;
+it does not clear the native PostgreSQL or database-server restart checks.
+
 ## Existing Railway data
 
 The former Railway URL no longer exposes the SQLite volume, so its append-only

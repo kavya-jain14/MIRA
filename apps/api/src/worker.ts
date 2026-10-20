@@ -89,9 +89,9 @@ export async function runAgentOnce(
   let duplicates = 0;
   let published = 0;
 
-  await createRun({ id: runId, agentId, startedAt });
-
   try {
+    await createRun({ id: runId, agentId, startedAt });
+
     await updateAgentWorkerState(agentId, {
       workerState: "discovering",
       workerHeartbeatAt: startedAt,
