@@ -22,8 +22,12 @@ type Theme = "light" | "dark";
 const THEME_STORAGE_KEY = "faultline.theme";
 
 function readTheme(): Theme {
-  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (stored === "light" || stored === "dark") return stored;
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+  } catch {
+    // Theme persistence is optional when browser storage is unavailable.
+  }
   return "light";
 }
 
@@ -36,7 +40,11 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Keep the selected theme for this session even if it cannot be saved.
+    }
   }, [theme]);
 
   const openHealth = useCallback(() => setHealthOpen(true), []);
