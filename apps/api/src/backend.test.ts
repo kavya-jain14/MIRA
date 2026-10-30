@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { SourceRegistry } from "./sources/index.js";
 import type {
@@ -333,6 +333,49 @@ describe("durable autonomous runtime", () => {
     });
 
     expect(result).toEqual({ due: 1, completed: 1, failed: 0 });
+    expect(await dbModule.getPosts(agentId)).toHaveLength(1);
+  });
+
+  it("releases its lease after a failed run insert and can retry without waiting for lease expiry", async () => {
+    const agentId = "agent-run-insert-recovery";
+    const failureRetryMs = 1_000;
+    await dbModule.createAgent({
+      agentId,
+      personaName: "Mira",
+      personaDomain: "AI Reliability & Security",
+      initializedAt: NOW.toISOString(),
+      nextRunAt: NOW.toISOString(),
+    });
+    const createRun = vi.spyOn(dbModule, "createRun")
+      .mockRejectedValueOnce(new Error("temporary run insert failure"));
+
+    try {
+      await expect(workerModule.runAgentOnce(agentId, {
+        clock: () => NOW,
+        runtime: { failureRetryMs },
+      })).rejects.toThrow("temporary run insert failure");
+    } finally {
+      createRun.mockRestore();
+    }
+
+    expect(await dbModule.getAgent(agentId)).toMatchObject({
+      lockToken: null,
+      lockedUntil: null,
+      workerState: "degraded",
+      nextRunAt: new Date(NOW.getTime() + failureRetryMs).toISOString(),
+    });
+    expect(await dbModule.getRuns(agentId)).toEqual([]);
+    expect(await dbModule.getPosts(agentId)).toEqual([]);
+
+    const retry = await workerModule.runAgentOnce(agentId, {
+      clock: () => new Date(NOW.getTime() + failureRetryMs),
+      sourceRegistry: new SourceRegistry([new FixedAdapter([strongCandidate()])], {
+        retries: 0, timeoutMs: 1_000,
+      }),
+      runtime: { scheduleJitterMs: 0 },
+    });
+    expect(retry).toMatchObject({ skipped: false, published: 1 });
+    expect(await dbModule.getRuns(agentId)).toHaveLength(1);
     expect(await dbModule.getPosts(agentId)).toHaveLength(1);
   });
 

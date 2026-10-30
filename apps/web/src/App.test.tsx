@@ -96,10 +96,46 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
 describe("MIRA control room", () => {
+  it("keeps the feed and theme usable when browser storage access is denied", async () => {
+    const user = userEvent.setup();
+    installConnectedApi();
+    window.history.replaceState({}, "", "/?agentId=agent-mira");
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("Storage access denied", "SecurityError");
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Newest reliability note")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: /switch to dark mode/i }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    await user.click(screen.getByRole("button", { name: /disconnect view/i }));
+    expect(screen.getByText("The signal is noisy.")).toBeVisible();
+  });
+
+  it("uses the saved theme and permits toggling when theme persistence fails", async () => {
+    const user = userEvent.setup();
+    const fetchMock = installConnectedApi();
+    window.localStorage.setItem("faultline.theme", "dark");
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+    });
+
+    render(<App />);
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+    await user.click(screen.getByRole("button", { name: /switch to light mode/i }));
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(screen.getByText("The signal is noisy.")).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("does not call the API before deliberate initialization", () => {
     const fetchMock = installConnectedApi();
     render(<App />);

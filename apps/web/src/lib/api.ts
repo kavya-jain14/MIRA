@@ -31,6 +31,7 @@ async function request<T>(
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
       headers: {
         Accept: "application/json",
         ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
