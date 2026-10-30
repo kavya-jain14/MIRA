@@ -2,7 +2,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { FeedPost } from "@faultline/contracts";
-import { retrieveControlRoom, retrieveFeed } from "../lib/api";
+import { initializeAgent, retrieveControlRoom, retrieveFeed } from "../lib/api";
 import { useAgentControlRoom } from "./use-agent-control-room";
 
 vi.mock("../lib/api", () => ({
@@ -18,6 +18,65 @@ beforeEach(() => {
   vi.mocked(retrieveControlRoom).mockRejectedValue(new Error("telemetry unavailable"));
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.resetAllMocks(); });
+
+it("keeps an explicitly connected desk when an earlier initialization finishes", async () => {
+  let resolveInitialization!: (agentId: string) => void;
+  vi.mocked(initializeAgent).mockImplementation(() => new Promise(resolve => { resolveInitialization = resolve; }));
+  vi.mocked(retrieveFeed).mockResolvedValue([]);
+  const { result } = renderHook(useAgentControlRoom);
+  let initialization!: Promise<void>;
+  act(() => { initialization = result.current.initialize({ name: "Mira", domain: "reliability" }); });
+  act(() => result.current.connect("existing-desk"));
+  await waitFor(() => expect(result.current.isLoading).toBe(false));
+  await act(async () => { resolveInitialization("late-new-desk"); await initialization; });
+
+  expect(result.current.agentId).toBe("existing-desk");
+  expect(window.localStorage.getItem("faultline.connectedAgentId")).toBe("existing-desk");
+  expect(result.current.isInitializing).toBe(false);
+});
+
+it("does not show an old initialization failure after connecting another desk", async () => {
+  let rejectInitialization!: (error: Error) => void;
+  vi.mocked(initializeAgent).mockImplementation(() => new Promise((_, reject) => { rejectInitialization = reject; }));
+  vi.mocked(retrieveFeed).mockResolvedValue([]);
+  const { result } = renderHook(useAgentControlRoom);
+  let initialization!: Promise<void>;
+  act(() => { initialization = result.current.initialize({ name: "Mira", domain: "reliability" }); });
+  act(() => result.current.connect("existing-desk"));
+  await act(async () => { rejectInitialization(new Error("late failure")); await initialization; });
+
+  expect(result.current.agentId).toBe("existing-desk");
+  expect(result.current.initializationError).toBeNull();
+  expect(result.current.isInitializing).toBe(false);
+});
+
+it("stays disconnected when an earlier initialization resolves after a connection was closed", async () => {
+  let resolveInitialization!: (agentId: string) => void;
+  vi.mocked(initializeAgent).mockImplementation(() => new Promise(resolve => { resolveInitialization = resolve; }));
+  vi.mocked(retrieveFeed).mockResolvedValue([]);
+  const { result } = renderHook(useAgentControlRoom);
+  let initialization!: Promise<void>;
+  act(() => { initialization = result.current.initialize({ name: "Mira", domain: "reliability" }); });
+  act(() => result.current.connect("existing-desk"));
+  act(() => result.current.disconnect());
+  await act(async () => { resolveInitialization("late-new-desk"); await initialization; });
+
+  expect(result.current.agentId).toBeNull();
+  expect(window.localStorage.getItem("faultline.connectedAgentId")).toBeNull();
+  expect(result.current.isInitializing).toBe(false);
+});
+
+it("connects a current initialization result normally", async () => {
+  vi.mocked(initializeAgent).mockResolvedValue("new-desk");
+  vi.mocked(retrieveFeed).mockResolvedValue([]);
+  const { result } = renderHook(useAgentControlRoom);
+  await act(async () => { await result.current.initialize({ name: "Mira", domain: "reliability" }); });
+
+  await waitFor(() => expect(result.current.isLoading).toBe(false));
+  expect(result.current.agentId).toBe("new-desk");
+  expect(window.localStorage.getItem("faultline.connectedAgentId")).toBe("new-desk");
+  expect(result.current.isInitializing).toBe(false);
+});
 
 it("ignores an old feed response after disconnect", async () => {
   let resolveFeed!: (posts: FeedPost[]) => void;

@@ -41,6 +41,7 @@ export interface AgentControlRoomState {
 }
 
 export function useAgentControlRoom(): AgentControlRoomState {
+  const initializationVersion = useRef(0);
   const requestVersion = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
   const [agentId, setAgentId] = useState<string | null>(readInitialAgentId);
@@ -108,10 +109,12 @@ export function useAgentControlRoom(): AgentControlRoomState {
   }, [agentId, refresh]);
 
   const initialize = useCallback(async (persona: PersonaInit): Promise<void> => {
+    const version = ++initializationVersion.current;
     setIsInitializing(true);
     setInitializationError(null);
     try {
       const initializedAgentId = await initializeAgent(persona);
+      if (version !== initializationVersion.current) return;
       try { window.localStorage.setItem(STORAGE_KEY, initializedAgentId); } catch { /* Continue for this session. */ }
       activeRequest.current?.abort();
       requestVersion.current += 1;
@@ -121,15 +124,17 @@ export function useAgentControlRoom(): AgentControlRoomState {
       setAgentId(initializedAgentId);
       setIsLoading(true);
     } catch (error) {
-      setInitializationError(messageFor(error));
+      if (version === initializationVersion.current) setInitializationError(messageFor(error));
     } finally {
-      setIsInitializing(false);
+      if (version === initializationVersion.current) setIsInitializing(false);
     }
   }, []);
 
   const connect = useCallback((value: string): void => {
     const normalized = value.trim();
     if (!normalized) return;
+    initializationVersion.current += 1;
+    setIsInitializing(false);
     try { window.localStorage.setItem(STORAGE_KEY, normalized); } catch { /* Continue for this session. */ }
     activeRequest.current?.abort();
     requestVersion.current += 1;
@@ -142,6 +147,9 @@ export function useAgentControlRoom(): AgentControlRoomState {
   }, []);
 
   const disconnect = useCallback((): void => {
+    initializationVersion.current += 1;
+    setIsInitializing(false);
+    setInitializationError(null);
     try { window.localStorage.removeItem(STORAGE_KEY); } catch { /* Disconnect locally. */ }
     activeRequest.current?.abort();
     requestVersion.current += 1;
